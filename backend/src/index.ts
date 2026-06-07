@@ -45,6 +45,10 @@ app.use('/api/notifications', notificationRoutes);
 app.use(errorHandler);
 
 // Starting Server
-app.listen(PORT, () => {
-  console.log(`[XYZ Homes Server] Running on port http://localhost:${PORT}`);
-});
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`[XYZ Homes Server] Running on port http://localhost:${PORT}`);
+  });
+}
+
+export default app;
