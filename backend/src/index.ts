@@ -37,11 +37,16 @@ app.get('/health', (req, res) => {
 });
 
 // Mounting route groups
-app.use('/api/auth', authRoutes);
-app.use('/api/properties', propertyRoutes);
-app.use('/api/bookings', bookingRoutes);
-app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/notifications', notificationRoutes);
+const mountRoutes = (prefix: string) => {
+  app.use(`${prefix}/auth`, authRoutes);
+  app.use(`${prefix}/properties`, propertyRoutes);
+  app.use(`${prefix}/bookings`, bookingRoutes);
+  app.use(`${prefix}/dashboard`, dashboardRoutes);
+  app.use(`${prefix}/notifications`, notificationRoutes);
+};
+
+mountRoutes('/api'); // Local dev and standard API requests
+mountRoutes('');     // Vercel deployment where routePrefix strips /api
 
 // Error Handling Middleware (Must be last)
 app.use(errorHandler);
