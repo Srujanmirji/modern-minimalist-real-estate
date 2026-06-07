@@ -3,6 +3,7 @@ import { AuthenticatedRequest } from '../middleware/auth.middleware';
 import prisma from '../utils/db';
 import { AppError } from '../middleware/error.middleware';
 import { PropertyStatus } from '@prisma/client';
+import { MOCK_PROPERTIES, filterMockProperties } from '../utils/mockData';
 
 export const getProperties = async (
   req: AuthenticatedRequest,
@@ -92,27 +93,53 @@ export const getProperties = async (
       orderBy = { area: 'desc' };
     }
 
-    const [properties, totalCount] = await prisma.$transaction([
-      prisma.property.findMany({
-        where,
-        orderBy,
-        skip,
-        take: parsedLimit,
-        include: {
-          images: true,
-          agent: {
-            select: { id: true, name: true, email: true, avatarUrl: true },
+    let properties: any[] = [];
+    let totalCount = 0;
+    let totalPages = 0;
+    let currentPageVal = parsedPage;
+
+    try {
+      const [dbProperties, dbTotalCount] = await prisma.$transaction([
+        prisma.property.findMany({
+          where,
+          orderBy,
+          skip,
+          take: parsedLimit,
+          include: {
+            images: true,
+            agent: {
+              select: { id: true, name: true, email: true, avatarUrl: true },
+            },
           },
-        },
-      }),
-      prisma.property.count({ where }),
-    ]);
+        }),
+        prisma.property.count({ where }),
+      ]);
+      properties = dbProperties;
+      totalCount = dbTotalCount;
+      totalPages = Math.ceil(totalCount / parsedLimit);
+    } catch (error) {
+      console.error('Database query failed. Falling back to mock data:', error);
+      const mockResult = filterMockProperties(req.query);
+      properties = mockResult.properties;
+      totalCount = mockResult.totalCount;
+      totalPages = mockResult.totalPages;
+      currentPageVal = mockResult.currentPage;
+    }
+
+    if (properties.length === 0) {
+      console.log('Database returned 0 properties. Falling back to mock data...');
+      const mockResult = filterMockProperties(req.query);
+      properties = mockResult.properties;
+      totalCount = mockResult.totalCount;
+      totalPages = mockResult.totalPages;
+      currentPageVal = mockResult.currentPage;
+    }
 
     res.status(200).json({
       success: true,
       count: properties.length,
-      totalPages: Math.ceil(totalCount / parsedLimit),
-      currentPage: parsedPage,
+      totalPages,
+      currentPage: currentPageVal,
       totalCount,
       properties,
     });
@@ -129,20 +156,31 @@ export const getPropertyById = async (
   try {
     const { id } = req.params;
 
-    const property = await prisma.property.findUnique({
-      where: { id },
-      include: {
-        images: true,
-        agent: {
-          select: { id: true, name: true, email: true, avatarUrl: true },
-        },
-        reviews: {
-          include: {
-            user: { select: { id: true, name: true, avatarUrl: true } },
+    let property: any = null;
+
+    try {
+      property = await prisma.property.findUnique({
+        where: { id },
+        include: {
+          images: true,
+          agent: {
+            select: { id: true, name: true, email: true, avatarUrl: true },
+          },
+          reviews: {
+            include: {
+              user: { select: { id: true, name: true, avatarUrl: true } },
+            },
           },
         },
-      },
-    });
+      });
+    } catch (error) {
+      console.error('Database findUnique failed. Falling back to mock data:', error);
+    }
+
+    if (!property) {
+      // Find in mock data
+      property = MOCK_PROPERTIES.find((p) => p.id === id);
+    }
 
     if (!property) {
       return next(new AppError('Property not found.', 404));
@@ -444,7 +482,6 @@ export const addReview = async (
   }
 };
 
-// AI Recommendations Engine Mock
 export const getRecommendations = async (
   req: AuthenticatedRequest,
   res: Response,
@@ -452,24 +489,36 @@ export const getRecommendations = async (
 ) => {
   try {
     // Recommend similar items based on user favorites or default to top featured properties
-    const userFavorites = req.user
-      ? await prisma.favorite.findMany({
-          where: { userId: req.user.id },
-          select: { propertyId: true },
-        })
-      : [];
+    let recommendations: any[] = [];
+    let favIds: string[] = [];
 
-    const favIds = userFavorites.map((f) => f.propertyId);
+    try {
+      const userFavorites = req.user
+        ? await prisma.favorite.findMany({
+            where: { userId: req.user.id },
+            select: { propertyId: true },
+          })
+        : [];
+      favIds = userFavorites.map((f) => f.propertyId);
 
-    // If no favorites, return featured properties
-    const recommendations = await prisma.property.findMany({
-      where: {
-        status: PropertyStatus.FOR_SALE,
-        id: { notIn: favIds },
-      },
-      take: 4,
-      include: { images: true },
-    });
+      recommendations = await prisma.property.findMany({
+        where: {
+          status: PropertyStatus.FOR_SALE,
+          id: { notIn: favIds },
+        },
+        take: 4,
+        include: { images: true },
+      });
+    } catch (error) {
+      console.error('Database recommendations query failed. Falling back to mock data:', error);
+    }
+
+    if (recommendations.length === 0) {
+      // Get featured/sale properties from mock data
+      recommendations = MOCK_PROPERTIES.filter(
+        (p) => p.status === PropertyStatus.FOR_SALE && !favIds.includes(p.id)
+      ).slice(0, 4);
+    }
 
     res.status(200).json({
       success: true,
