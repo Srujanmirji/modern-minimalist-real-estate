@@ -7,6 +7,8 @@ import bookingRoutes from './routes/booking.routes';
 import dashboardRoutes from './routes/dashboard.routes';
 import notificationRoutes from './routes/notification.routes';
 import { errorHandler } from './middleware/error.middleware';
+import prisma from './utils/db';
+import { seedDatabase } from './utils/seeder';
 
 // Load environment variables
 dotenv.config();
@@ -50,5 +52,20 @@ if (!process.env.VERCEL) {
     console.log(`[XYZ Homes Server] Running on port http://localhost:${PORT}`);
   });
 }
+
+// Auto-seeding check on startup (if database is empty)
+const autoSeed = async () => {
+  try {
+    const count = await prisma.property.count();
+    if (count === 0) {
+      console.log('[XYZ Homes Server] Database is empty. Running auto-seeding...');
+      await seedDatabase();
+      console.log('[XYZ Homes Server] Auto-seeding completed successfully!');
+    }
+  } catch (error) {
+    console.error('[XYZ Homes Server] Error checking or seeding database:', error);
+  }
+};
+autoSeed();
 
 export default app;
